@@ -1,0 +1,28 @@
+PIDGINDIR = $(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/2.7.1)
+INCLUDE = -I$(PIDGINDIR)/libpurple -I$(PIDGINDIR)/libpurple/win32 \
+          -I$(shell cygpath -m -s /cygdrive/c/atomdep/Python26/include) \
+          -I$(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/win32-dev/gtk_2_0-2.14/include/glib-2.0) \
+          -I$(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/win32-dev/gtk_2_0-2.14/lib/glib-2.0/include)
+CFLAGS  = -c $(INCLUDE)
+LDFLAGS = -L$(PIDGINDIR)/win32-install-dir \
+          -L$(shell cygpath -m -s /cygdrive/c/atomdep/Python26/libs) \
+          -L$(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/win32-dev/gtk_2_0-2.14/lib) \
+          -shared
+CC = $(shell cygpath -m -a /cygdrive/c/atomdep/pidgin/win32-dev/mingw/bin/gcc)
+
+SOURCES = $(wildcard *.i)
+TARGETS = $(SOURCES:%.i=_%.pyd)
+
+all: $(TARGETS)
+
+clean:
+	$(RM) $(SOURCES:i=py) *_wrap.c *.o *.pyc *.pyd
+
+_purple.pyd: purple_wrap.o purple.o
+	$(CC) -o $@ $^ -lglib-2.0 -lgobject-2.0 -lgthread-2.0 -lpython26 -lpurple $(LDFLAGS)
+
+.c.o:
+	$(CC) $(CFLAGS) -o $@ $<
+
+%_wrap.c %.py: %.i
+	c:/atomdep/swig/1.3.39/swig -python $(INCLUDE) $<
