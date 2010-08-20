@@ -21,15 +21,16 @@ You will need to following tools to build Heliotrope:
 - Mingw compiler: [http://www.mingw.org/](http://www.mingw.org/)
 - Swig: [http://www.swig.org/](http://www.swig.org/)
 
-On Windows, just adjust the paths in Makefile.mingw and issue:
+On Windows, just adjust the paths in **Makefile.mingw** and issue:
 
 	make -f Makefile.mingw
 
-## What is the meaning of "heliotrope" ?
+## What is the meaning of "heliotrope"?
 
-The Heliotrope project name came about as an alternative color to "purple". See http://en.wikipedia.org/wiki/Heliotrope_(color)
+The Heliotrope project name came about as an alternative color to "purple". See: [http://en.wikipedia.org/wiki/Heliotrope_(color)][1]
 
-## Can I contribute to Heliotrope ?
+## Can I contribute to Heliotrope?
 
 Yes, by all means! If you find bugs or missing features, please join the project and submit patches!
 
+[1]: http://en.wikipedia.org/wiki/Heliotrope_(color)
