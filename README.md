@@ -23,7 +23,7 @@ You will need to following tools to build Heliotrope:
 
 On Windows, just adjust the paths in Makefile.mingw and issue:
 
-  make -f Makefile.mingw
+	make -f Makefile.mingw
 
 ## What is the meaning of "heliotrope" ?
 
