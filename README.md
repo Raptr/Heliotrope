@@ -17,9 +17,9 @@ are welcome!
 
 You will need to following tools to build Heliotrope:
 
-- Pidgin source code (http://pidgin.im/download/source/)
-- Mingw compiler (http://www.mingw.org/)
-- Swig (http://www.swig.org/)
+- Pidgin source code [http://pidgin.im/download/source/](http://pidgin.im/download/source/)
+- Mingw compiler [http://www.mingw.org/](http://www.mingw.org/)
+- Swig [http://www.swig.org/](http://www.swig.org/)
 
 On Windows, just adjust the paths in Makefile.mingw and issue:
 
@@ -27,7 +27,7 @@ On Windows, just adjust the paths in Makefile.mingw and issue:
 
 ## 4. What is the meaning of "heliotrope" ?
 
-The Heliotrope project name came about as an alternative color to "purple". See http://en.wikipedia.org/wiki/Heliotrope_(color)
+The Heliotrope project name came about as an alternative color to "purple". See [http://en.wikipedia.org/wiki/Heliotrope_(color)](http://en.wikipedia.org/wiki/Heliotrope_(color))
 
 ## 5. Can I contribute to Heliotrope ?
 
