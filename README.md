@@ -17,13 +17,25 @@ are welcome!
 
 You will need to following tools to build Heliotrope:
 
-- Pidgin source code: [http://pidgin.im/download/source/](http://pidgin.im/download/source/)
-- Mingw compiler: [http://www.mingw.org/](http://www.mingw.org/)
+- libpurple [http//pidgin.im](http://pidgin.im)
+- GNU C Compiler [http://gcc.gnu.org/](http://gcc.gnu.org/) and utilities
 - Swig: [http://www.swig.org/](http://www.swig.org/)
 
-On Windows, just adjust the paths in **Makefile.mingw** and issue:
+On Windows, just setup a command prompt, adjust the paths in **Makefile.mingw** and issue:
 
 	make -f Makefile.mingw
+
+On Unix/Linux, use
+
+	make -f Makefile.gmake
+
+Windows users should use the Pidgin source code:
+[http://pidgin.im/download/source/](http://pidgin.im/download/source/) and
+MinGW build environment: [http://www.mingw.org/](http://www.mingw.org/).
+
+Linux, BSD, and other *unix* users should obtain the associated development
+packages for their distribution. Under Debian/Ubuntu will will need the '-dev'
+packages, e.g. libpurple-dev. You will also require pkg-config.
 
 ## What is the meaning of "heliotrope"?
 
