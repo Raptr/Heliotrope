@@ -1,4 +1,4 @@
-PIDGINDIR = $(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/2.7.1)
+PIDGINDIR = $(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/2.7.10)
 INCLUDE = -I$(PIDGINDIR)/libpurple -I$(PIDGINDIR)/libpurple/win32 \
           -I$(shell cygpath -m -s /cygdrive/c/atomdep/Python26/include) \
           -I$(shell cygpath -m -s /cygdrive/c/atomdep/pidgin/win32-dev/gtk_2_0-2.14/include/glib-2.0) \

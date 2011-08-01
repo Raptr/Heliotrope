@@ -17,7 +17,6 @@ from PyQt4 import QtCore, QtNetwork
 from PyQt4.QtCore import SIGNAL
 
 from heliotrope import purple_base
-from heliotrope import pypurple
 
 log = logging.getLogger()
 PACKET_LEN = struct.calcsize('H')  # 2 bytes
@@ -45,13 +44,19 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
     self.DISCONNECTED = 3
     self.ERROR = 4
     self.state = self.DISCONNECTED
-        
-    if self.shared_memory.attach():
-      result = self.killServer()
-      if not result:
-        log.debug('PurpleClient::__init__(): Failed to kill server')
-        self.state = self.ERROR
-        return
+
+    if sys.platform == 'win32':
+      if self.shared_memory.attach():
+        result = self.killServer()
+        if not result:
+          log.debug('PurpleClient::__init__(): Failed to kill server')
+          self.state = self.ERROR
+          return
+    else:
+      # On Mac, shared memory segment isn't destroyed by the kernel if the last
+      # application crashes before detaching the segment.
+      if self.shared_memory.attach():
+        self.shared_memory.detach()
       
     if not self.shared_memory.create(purple_base.SHARED_MEMORY_SIZE_BYTES,
                                      QtCore.QSharedMemory.ReadWrite):
@@ -84,6 +89,13 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
     
     packet_len = struct.unpack('H', self.local_socket.read(PACKET_LEN))[0]
     msg_bytes = self.local_socket.read(packet_len)
+    while len(msg_bytes) < packet_len:
+      log.debug('PurpleClient::receiveNewConnection(): Waiting for more bytes')
+      if not self.local_socket.waitForReadyRead(self.timeout):
+        log.error('PurpleClient::receiveNewConnection(): Failed to read: %s' %
+                  self.local_socket.errorString().toLatin1())
+        return
+      msg_bytes += self.local_socket.read(packet_len - len(msg_bytes))
     message = pickle.loads(msg_bytes)
     
     log.debug('PurpleClient::receiveNewConnection(): message=%s' % message)
@@ -92,6 +104,9 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
       
     self.connect(self.local_socket, SIGNAL('readyRead()'), self.receiveMessage,
                  QtCore.Qt.DirectConnection)
+    self.connect(self.local_socket,
+                 SIGNAL('stateChanged(QLocalSocket::LocalSocketState)'),
+                 self.stateChangedCB, QtCore.Qt.DirectConnection)
     
   def receiveMessage(self):
     """Parse incoming message from PurpleServer"""
@@ -120,11 +135,18 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
     
   def launchServer(self):
     log.info('Launching PurpleServer')
-    if sys.argv[0].endswith('.py'):
-      subprocess.Popen('python heliotrope/raptr_im.py', close_fds=True)
+    if sys.platform == 'win32':
+      if sys.argv[0].endswith('.py'):
+        subprocess.Popen('python raptr_im.py', close_fds=True)
+      else:
+        subprocess.Popen('raptr_im.exe', close_fds=True)
     else:
-      subprocess.Popen('raptr_im.exe', close_fds=True)
-   
+      if hasattr(sys, 'frozen'):
+        subprocess.Popen('open RaptrIM.app'.split(), close_fds=True)
+      else: 
+        subprocess.Popen('python raptr_im.py'.split(),
+                         close_fds=True)
+
   def register_callback(self, callback, func):
     """Route callback registration to the PurpleCallbackThread thread
     Arguments:
@@ -138,6 +160,11 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
 
     # Setup local server
     self.local_server = QtNetwork.QLocalServer()
+
+    if sys.platform != 'win32':
+      # On Unix, the local pipe isn't cleaned up automatically by the kernel.
+      self.local_server.removeServer(self.unique_key)
+
     result = self.local_server.listen(self.unique_key)
     if not result:
       log.error('Failed to listen: %s, %s' % (
@@ -149,9 +176,13 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
     self.state = self.CONNECTING
     self.connect(self.local_server, SIGNAL('newConnection()'),
                  self.receiveNewConnection, QtCore.Qt.DirectConnection)
-        
+
+    # Save initial messages used to initialize PurpleServer, 
+    # so that we can play back in case raptr_im.exe dies.
+    self.initial_messages = self.messages[:]
+    
     # Send messages in a separate thread
-    self.queued_message_timer = QtCore.QTimer()                 
+    self.queued_message_timer = QtCore.QTimer()
     self.connect(self.queued_message_timer, SIGNAL('timeout()'),
                  self.sendMessage, QtCore.Qt.DirectConnection)
     self.queued_message_timer.start(500)
@@ -160,7 +191,7 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
     self.shared_memory_timer = QtCore.QTimer()
     self.connect(self.shared_memory_timer, SIGNAL('timeout()'),
                  self.readSharedMemory, QtCore.Qt.DirectConnection)
-    self.shared_memory_timer.start(1000)                 
+    self.shared_memory_timer.start(1000)
     
     self.launchServer()
     
@@ -169,6 +200,13 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
       'args': None,
     }
     self.queueMessage(message)
+    
+    # Properly shutdown the timers on exit
+    self.connect(QtCore.QCoreApplication.instance(), SIGNAL('aboutToQuit()'),
+                 self.queued_message_timer.stop)
+    self.connect(QtCore.QCoreApplication.instance(), SIGNAL('aboutToQuit()'),
+                 self.shared_memory_timer.stop)
+    
     self.exec_()
     
   def readSharedMemory(self):
@@ -179,7 +217,54 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
       self.shared_data = pickle.loads(data.asstring())
     finally:
       self.shared_memory.unlock()
-    
+
+  def stateChangedCB(self, state):
+    """Handle state changes in the named pipe
+    Arguments:
+      state: QLocalSocket.LocalSocketState
+    """
+    if state == self.local_socket.UnconnectedState:
+      self.state = self.DISCONNECTED
+      self.queued_message_timer.stop()
+      
+      # Log off from all accounts
+      callbacks = []
+      for account in self.get_accounts():
+        callbacks.append({'callback': 'signing-off',
+                         'msg': {'account': account}})
+        callbacks.append({'callback': 'signed-off',
+                         'msg': {'account': account}})
+
+      self.imhandler_callbacks_lock.lock()
+      try:
+        self.imhandler_callbacks += callbacks
+      finally:
+        self.imhandler_callbacks_lock.unlock()
+        
+      log.info('Purple Server disconnected; relaunching...')
+      self.launchServer()
+
+      # Play back messages used to initialize PurpleServer
+      self.resetMessages()
+      for message in self.initial_messages:
+        self.queueMessage(message)
+
+      message = {
+        'func': 'start',
+        'args': None,
+      }
+      self.queueMessage(message)
+      self.queued_message_timer.start(500)
+      
+    elif state == self.local_socket.ConnectingState:
+      pass
+    elif state == self.local_socket.ConnectedState:
+      pass
+    elif state == self.local_socket.ClosingState:
+      pass
+    else:
+      log.warn('PurpleServer::stateChangedCB(): Unknown state: %s' % state)
+
 # ----- Start of RPC functions
   
   def enable_debug(self, flag):
@@ -416,6 +501,56 @@ class PurpleClient(QtCore.QThread, purple_base.PurpleBaseRpc):
     }
     self.queueMessage(message)
     
+  def accept_transfer(self, account, buddy, filename, local_filename):
+    """RPC"""
+    message = {
+      'func': 'accept_transfer',
+      'args': [account, buddy, filename, local_filename],
+    }
+    self.queueMessage(message)
+
+  def deny_transfer(self, account, buddy, filename):
+    """RPC"""
+    message = {
+      'func': 'deny_transfer',
+      'args': [account, buddy, filename],
+    }
+    self.queueMessage(message)
+
+  # IRC related functions
+
+  def refresh_room_list(self, account):
+    """RPC"""
+    message = {
+      'func': 'refresh_room_list',
+      'args': [account],
+    }
+    self.queueMessage(message)
+
+  def cancel_room_list_refresh(self, account):
+    """RPC"""
+    message = {
+      'func': 'cancel_room_list_refresh',
+      'args': [account],
+    }
+    self.queueMessage(message)
+
+  def join_chat_room(self, account, room_name):
+    """RPC"""
+    message = {
+      'func': 'join_chat_room',
+      'args': [account, room_name],
+    }
+    self.queueMessage(message)
+
+  def roomlist_unref(self, account):
+    """RPC"""
+    message = {
+      'func': 'roomlist_unref',
+      'args': [account],
+    }
+    self.queueMessage(message)
+    
    
 class PurpleClientCallbackThread(QtCore.QThread):
   def __init__(self, parent):
@@ -432,6 +567,7 @@ class PurpleClientCallbackThread(QtCore.QThread):
       'buddy-status-changed': [],
       'blist-node-aliased': [],
       'received-im-msg': [],
+      'received-chat-msg': [],
       'request-authorization': [],
       'signed-on': [],
       'signed-off': [],
@@ -450,6 +586,9 @@ class PurpleClientCallbackThread(QtCore.QThread):
       'file-send-start': [],
       'file-send-cancel': [],
       'file-send-complete': [],
+      'room-list-progress': [],
+      'chat-buddy-joined': [],
+      'chat-buddy-left': [],
     }
 
   def run(self):

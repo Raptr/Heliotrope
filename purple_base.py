@@ -104,6 +104,14 @@ class PurpleBaseRpc:
     
     return messages
   
+  def resetMessages(self):
+    """Reset the message queue"""
+    self.messages_lock.lock()
+    try:
+      self.messages = []
+    finally:
+      self.messages_lock.unlock()
+  
   def queueMessage(self, message):
     """Place outgoing message onto the queue"""
     self.messages_lock.lock()

@@ -9,6 +9,7 @@ without any warranty.
 import gobject
 import logging
 import os
+import random
 import re
 import sys
 import threading
@@ -18,7 +19,7 @@ from heliotrope import purple
 
 log = logging.getLogger()
 
-PIDGIN = 'c:/atomdep/pidgin/2.7.1'
+PIDGIN = 'c:/atomdep/pidgin/2.7.10'
 LIBPURPLE_PLUGIN_DIR = PIDGIN + '/win32-install-dir/plugins'
 CA_CERT_DIRS = [PIDGIN + '/share/ca-certs']
 CONFIG_DIR = 'config'
@@ -36,6 +37,9 @@ class Client(threading.Thread):
     # Register this application with libpurple
     self.appname = 'purplexmpp'
 
+    # Exception handler can be installed only once
+    self.exception_handler_installed = False
+    
     # Start GTK mainloop
     self.loop = gobject.MainLoop()
     self.loop.quit()
@@ -52,6 +56,7 @@ class Client(threading.Thread):
       'buddy-status-changed': [],
       'blist-node-aliased': [],
       'received-im-msg': [],
+      'received-chat-msg': [],
       'request-authorization': [],
       'signed-on': [],
       'signed-off': [],
@@ -70,6 +75,9 @@ class Client(threading.Thread):
       'file-send-start': [],
       'file-send-cancel': [],
       'file-send-complete': [],
+      'room-list-progress': [],
+      'chat-buddy-joined': [],
+      'chat-buddy-left': [],
     }
 
     # Keep track of all pending authorizations
@@ -87,6 +95,10 @@ class Client(threading.Thread):
     # Keep track of account connection status
     self.account_status = {}
     self.account_errmsg = {}
+
+    # Keep track of rooms associated with accounts
+    self.account_rooms = {}
+    self.account_roomlist = {}
 
     # Allow user to override various directories
     self.config_dir = CONFIG_DIR
@@ -112,6 +124,9 @@ class Client(threading.Thread):
     """
     if enable:
       purple.set_heliotrope_print_debug_cb(log.debug)
+      if not self.exception_handler_installed:
+        self.exception_handler_installed = True
+        purple.setup_exception_handler()
     else:
       purple.set_heliotrope_print_debug_cb(self.null)
 
@@ -179,6 +194,26 @@ class Client(threading.Thread):
            'from': str_normalize(sender),
            'message': message.decode('utf-8')}
     for func in self.callbacks['received-im-msg']:
+      func(msg)
+
+  def received_chat_msg_cb(self, p_account, sender, message, p_conv, flags):
+    """Received chat (eg. IRC) message:
+    Arguments:
+      p_account: pointer to PurpleAccount object
+      sender: String, sender
+      message: String, message
+      p_conv: pointer to PurpleConversation object
+      flags: int, IM conversation flags
+    """
+    acct = purple.to_account(p_account)
+    conv = purple.to_conv(p_conv)
+    msg = {
+        'account': '%s|%s' % (acct.protocol_id, acct.username.lower()),
+        'room_name': conv.name,
+        'from': str_normalize(sender),
+        'message': message.decode('utf-8')
+    }
+    for func in self.callbacks['received-chat-msg']:
       func(msg)
 
   def received_buddy_typing_cb(self, p_account, sender):
@@ -255,7 +290,9 @@ class Client(threading.Thread):
     if acct.protocol_id == 'prpl-xfire':
       log.debug("Fetching avatar for: %s" %
                 str_normalize(purple.purple_buddy_get_name(b)))
-      purple.heliotrope_xfire_tooltip_text(b)
+                
+      delay_ms = random.randint(0, 30000)
+      gobject.timeout_add(delay_ms, purple.heliotrope_xfire_tooltip_text, b)
 
   def buddy_added_cb(self, p_buddy):
     """Received buddy added notification
@@ -394,7 +431,7 @@ class Client(threading.Thread):
     """
     gc = purple.to_connection(p_connection)
     acct = purple.purple_connection_get_account(gc)
-    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower().rstrip('/'))
     self.account_status[account] = self.CONNECTED
     self.account_errmsg[account] = ''
 
@@ -409,7 +446,7 @@ class Client(threading.Thread):
     """
     gc = purple.to_connection(p_connection)
     acct = purple.purple_connection_get_account(gc)
-    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower().rstrip('/'))
     self.account_status[account] = self.DISCONNECTED
 
     # Remove any pending authorizations that belong to the account going offline.
@@ -428,7 +465,7 @@ class Client(threading.Thread):
     """
     gc = purple.to_connection(p_connection)
     acct = purple.purple_connection_get_account(gc)
-    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower().rstrip('/'))
     self.account_status[account] = self.CONNECTING
 
     msg = {'account': account}
@@ -442,7 +479,7 @@ class Client(threading.Thread):
     """
     gc = purple.to_connection(p_connection)
     acct = purple.purple_connection_get_account(gc)
-    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower().rstrip('/'))
     self.account_status[account] = self.DISCONNECTING
 
     msg = {'account': account}
@@ -458,7 +495,7 @@ class Client(threading.Thread):
     """
     gc = purple.to_connection(p_connection)
     acct = purple.purple_connection_get_account(gc)
-    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower().rstrip('/'))
     self.account_status[account] = self.ERROR
     self.account_errmsg[account] = desc
     
@@ -505,6 +542,12 @@ class Client(threading.Thread):
     account_ops.request_authorize = purple.request_authorize_cb
     purple.purple_accounts_set_ui_ops(account_ops)
 
+    # Set roomlist ui ops
+    purple.set_heliotrope_add_room_cb(self.add_room_cb)
+    purple.set_heliotrope_room_refresh_in_progress_cb(
+        self.room_refresh_in_progress_cb)
+    purple.purple_roomlist_set_ui_ops(purple.heliotrope_get_roomlist_ui_ops())
+
     # Setup a bunch of paths:
     purple.purple_plugins_add_search_path(self.plugin_dir)
     for dir in self.ca_cert_dirs:
@@ -532,6 +575,7 @@ class Client(threading.Thread):
     # Register callbacks
     handle = purple.purple_plugin_new(True, None)
     purple.set_received_im_msg(handle, self.received_im_msg_cb)
+    purple.set_received_chat_msg(handle, self.received_chat_msg_cb)
     purple.set_buddy_typing(handle, self.received_buddy_typing_cb)
     purple.set_buddy_typing_stopped(handle,
       self.received_buddy_typing_stopped_cb)
@@ -558,6 +602,8 @@ class Client(threading.Thread):
     purple.set_file_send_start(handle, self.file_send_start_cb)
     purple.set_file_send_cancel(handle, self.file_send_cancel_cb)
     purple.set_file_send_complete(handle, self.file_send_complete_cb)
+    purple.set_chat_buddy_joined(handle, self.chat_buddy_joined_cb)
+    purple.set_chat_buddy_left(handle, self.chat_buddy_left_cb)
 
     # Start the main loop
     self.loop.run()
@@ -666,15 +712,14 @@ class Client(threading.Thread):
               in username.
       int_keys: Dictionary, a key/value pair of integer values
     """
-    log.debug("Inside client::login()")
-    log.info("Login to: account=%s, server=%s" % (account, server))
+    log.info("PyPurple::login(): account=%s, server=%s" % (account, server))
 
     if not account:
       log.warn('Client::login(): Missing account')
       return
 
-    if not password:
-      log.warn('Missing password')
+    if not password and not account.startswith('prpl-irc'):
+      log.warn('PyPurple::login(): Missing password')
       return
 
     account = account.encode('utf-8')
@@ -685,6 +730,13 @@ class Client(threading.Thread):
     protocol, username = account.split('|')
     protocol = protocol.encode('utf-8')
     username = username.encode('utf-8')
+
+    if protocol == 'prpl-irc':
+      if username.find(':') >= 0:
+        username, port = username.split(':', 1)
+        port = int(port)
+      else:
+        port = 6667
 
     # Create the account
     acct = purple.purple_account_new(username, protocol)
@@ -721,11 +773,30 @@ class Client(threading.Thread):
                           acct, 'ingamedetectionnorm', False)
 
     if protocol in ['prpl-aim', 'prpl-icq']:
-      # Disable clientlogin for Oscar protocol
-      # See http://developer.pidgin.im/ticket/11142
       gobject.timeout_add(0,
                           purple.purple_account_set_bool,
-                          acct, 'use_clientlogin', False)
+                          acct, 'use_clientlogin', True)
+      gobject.timeout_add(0,
+                          purple.purple_account_set_string,
+                          acct, 'encryption', 'opportunistic_encryption')
+      gobject.timeout_add(0,
+                          purple.purple_account_remove_setting,
+                          acct, 'use_ssl')
+                          
+    if protocol in ['prpl-aim']:
+      gobject.timeout_add(0,
+                          purple.purple_account_set_string,
+                          acct, 'server', 'slogin.oscar.aol.com')
+
+    if protocol in ['prpl-icq']:
+      gobject.timeout_add(0,
+                          purple.purple_account_set_string,
+                          acct, 'server', 'slogin.icq.com')
+
+    if protocol in ['prpl-irc']:
+      gobject.timeout_add(0,
+                          purple.purple_account_set_int,
+                          acct, 'port', port)
 
     gobject.timeout_add(0,
                         purple.purple_accounts_add,
@@ -747,7 +818,10 @@ class Client(threading.Thread):
       new_status_id: String, (see status_primitive_map in status.c)
     """
     status_id = new_status_id
+    if isinstance(new_status_message, unicode):
+      new_status_message = new_status_message.encode('utf-8')
     status_message = new_status_message
+
     for acct in purple.purple_accounts_get_all_active():
       status = purple.purple_account_get_active_status(acct)
       if new_status_id is None:
@@ -874,7 +948,8 @@ class Client(threading.Thread):
       recipient: String, recipient's username
     """
     if not account or not recipient:
-      log.warn('Missing parameters for Client::send_typing_stopped_notification()')
+      log.warn('PyPurple::send_typing_stopped_notification(): ' +
+               'Missing required parameters')
       return
 
     account = account.encode('utf-8')
@@ -884,7 +959,8 @@ class Client(threading.Thread):
 
     acct = purple.purple_accounts_find(username, protocol)
     if not acct:
-      log.warn('Cannot find account: %s' % account)
+      log.warn('PyPurple::send_typing_stopped_notification(): ' +
+               'Cannot find account: %s' % account)
       return
     
     conv = purple.purple_find_conversation_with_account(
@@ -1153,7 +1229,7 @@ class Client(threading.Thread):
 
     c = purple.purple_account_get_connection(acct)
     if not c:
-      log.warn('Connection not found: %s' % c)
+      log.warn('PyPurple::send_file(): Connection not found: %s' % c)
       return
 
     purple.serv_send_file(c, buddy, local_filename)
@@ -1334,6 +1410,8 @@ class Client(threading.Thread):
         
       t_filename = purple.purple_xfer_get_filename(xfer)
       t_local_filename = purple.purple_xfer_get_local_filename(xfer)
+      if t_local_filename:
+        t_local_filename = t_local_filename.decode('utf-8')
       t_status = purple.purple_xfer_get_status(xfer)
 
       if (t_account == account and
@@ -1447,6 +1525,158 @@ class Client(threading.Thread):
       log.warn('In Client::cancel_transfer: xfer not found')
       return
     purple.purple_xfer_cancel_local(xfer)
+
+  def refresh_room_list(self, account):
+    """Refresh room list
+    Arguments:
+      account: String, full account (eg. prpl-jabber|username@domain)
+    """
+    protocol, username = account.split('|')
+    protocol = protocol.encode('utf-8')
+    username = username.encode('utf-8')
+
+    acct = purple.purple_accounts_find(username, protocol)
+    if not acct:
+      log.warn('PyPurple::refresh_room_list(): ' +
+               'Cannot find account: %s' % account)
+      return
+    
+    c = purple.purple_account_get_connection(acct)
+    if not c:
+      log.warn('PyPurple::refresh_room_list(): Connection not found: %s' % c)
+      return
+
+    purple.purple_roomlist_get_list(c)
+
+  def cancel_room_list_refresh(self, account):
+    """Cancel an active room list refresh operation
+    Arguments:
+      account: String, full account (eg. prpl-jabber|username@domain)
+    """
+    # TODO(koyao): Implement this function.
+    pass
+
+  def add_room_cb(self, p_room_list, p_room):
+    """Callback to handle a room got added.
+    Arguments:
+      p_room_list: Pointer to PurpleRoomlist object
+      p_room: Pointer PurpleRoomlistRoom object
+    """
+    room_list = purple.to_room_list(p_room_list)
+    room = purple.to_room(p_room)
+    room_name, user_count, topic = purple.purple_roomlist_room_get_fields(room)
+    acct = room_list.account
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+    
+    self.account_rooms.setdefault(account, {})
+    self.account_rooms[account].setdefault(room_name, {})
+    self.account_rooms[account][room_name] = {    
+      'room': room,
+      'user_count': user_count,
+      'topic': topic,
+    }
+
+  def room_refresh_in_progress_cb(self, p_room_list, in_progress):
+    """Callback when fetching room list progress has changed.
+    Arguments:
+      p_room_list: Pointer to PurpleRoomlist object
+      in_progress: Integer, 1 for in progress; 0 for not in progress
+    """
+    room_list = purple.to_room_list(p_room_list)
+    acct = room_list.account
+    account = '%s|%s' % (acct.protocol_id, acct.username.lower())
+
+    if in_progress and self.account_roomlist.has_key(account):
+      purple.purple_roomlist_unref(self.account_roomlist[account])
+      del self.account_roomlist[account]
+    else:
+      self.account_roomlist[account] = room_list
+
+    self.account_rooms.setdefault(account, {})
+      
+    rooms = []
+    for account in self.account_rooms:
+      for room_name in self.account_rooms[account]:
+        try:
+          user_count = self.account_rooms[account][room_name]['user_count']
+          topic = self.account_rooms[account][room_name]['topic']
+        except KeyError, e:
+          continue
+        rooms.append(
+          {'room_name': room_name, 'user_count': user_count, 'topic': topic}
+        )
+        del self.account_rooms[account][room_name]['user_count']
+        del self.account_rooms[account][room_name]['topic']
+        
+    msg = {
+      'account': account,
+      'rooms': rooms,
+      'in_progress': (in_progress == 1),
+    }
+    for func in self.callbacks['room-list-progress']:
+      func(msg)
+
+  def join_chat_room(self, account, room_name):
+    """Join a chat room
+    Arguments:
+      account: String, eg. prpl-irc|username@example.com
+      room_name: String, room name
+    """
+    log.debug('PyPurple::join_chat_room(): %s, %s' % (account, room_name))
+    room = self.account_rooms[account][room_name]['room']
+    room_list = self.account_roomlist[account]
+    purple.purple_roomlist_room_join(room_list, room)
+
+  def roomlist_unref(self, account):
+    """Unreference roomlist associated with an account
+    Argument:
+      account: String, eg. prpl-irc|username@example.com
+    """
+    if not self.account_roomlist.has_key(account):
+      log.warn('PyPurple::roomlist_unref(): ' +
+               'room list not found for %s' % account)
+      return
+    room_list = self.account_roomlist[account]
+    purple.purple_roomlist_unref(room_list)
+    del self.account_roomlist[account]
+
+  def chat_buddy_joined_cb(self, p_conv, username, flags, new_arrival):
+    """New chat buddy has joined
+    Arguments:
+      p_conv: Pointer to PurpleConversation object
+      username: String, name of the user that is joining the conversation
+      flags: Integer, flags of the user that is joining the conversation.
+             See PurpleConvChatBuddyFlags in conversation.h
+      new_arrival: Boolean, whether the buddy is a new arrival
+    """
+    conv = purple.to_conv(p_conv)
+    acct = conv.account
+    msg = {
+        'account': '%s|%s' % (acct.protocol_id, acct.username.lower()),
+        'room_name': conv.name,
+        'username': username,
+        'new_arrival': bool(new_arrival),
+    }
+    for func in self.callbacks['chat-buddy-joined']:
+      func(msg)
+
+  def chat_buddy_left_cb(self, p_conv, username, reason):
+    """A chat buddy has left
+    Arguments:
+      p_conv: Pointer to PurpleConversation object
+      username: String, name of the user that is joining the conversation
+      reason: String, reason for leaving
+    """
+    conv = purple.to_conv(p_conv)
+    acct = conv.account
+    msg = {
+        'account': '%s|%s' % (acct.protocol_id, acct.username.lower()),
+        'room_name': conv.name,
+        'username': username,
+        'reason': reason,
+    }
+    for func in self.callbacks['chat-buddy-left']:
+      func(msg)
 
 
 def str_normalize(input):

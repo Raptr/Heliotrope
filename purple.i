@@ -66,7 +66,6 @@ void *request_authorize(PurpleAccount *account, const char *remote_user,
   const char *id, const char *alias, const char *message, gboolean on_list,
   PurpleAccountRequestAuthorizationCb authorize_cb,
   PurpleAccountRequestAuthorizationCb deny_cb, void *user_data);
-
 %}
 
 typedef int gboolean;
@@ -76,10 +75,11 @@ typedef int PurpleStatusPrimitive;
 typedef void (*PurpleInputFunction)(gpointer, gint, PurpleInputCondition);
 typedef void (*PurpleAccountRequestAuthorizationCb)(void *);
 
-typedef struct _GList              GList;
-typedef struct _PurpleAccount      PurpleAccount;
-typedef struct _PurpleConversation PurpleConversation;
-typedef struct _PurplePlugin       PurplePlugin;
+typedef struct _GList                GList;
+typedef struct _PurpleAccount        PurpleAccount;
+typedef struct _PurpleConversation   PurpleConversation;
+typedef struct _PurplePlugin         PurplePlugin;
+typedef struct _PurpleRoomlistField  PurpleRoomlistField;
 typedef char gchar;
 
 %typemap(out) GList *purple_accounts_get_all {
@@ -87,7 +87,7 @@ typedef char gchar;
   
   $result = PyList_New(0);
   for (i = g_list_first($1); i != 0; i = g_list_next(i)) {
-    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleAccount, 0 | 0));
+    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleAccount, 0));
   }
 }
 
@@ -96,7 +96,7 @@ typedef char gchar;
   
   $result = PyList_New(0);
   for (i = g_list_first($1); i != 0; i = g_list_next(i)) {
-    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleAccount, 0 | 0));
+    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleAccount, 0));
   }
 }
 
@@ -105,7 +105,7 @@ typedef char gchar;
   
   $result = PyList_New(0);
   for (i = g_list_first($1); i != 0; i = g_list_next(i)) {
-    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleXfer, 0 | 0));
+    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleXfer, 0));
   }
 }
 
@@ -114,7 +114,37 @@ typedef char gchar;
   
   $result = PyList_New(0);
   for (i = g_list_first($1); i != 0; i = g_list_next(i)) {
-    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleNotifyUserInfoEntry, 0 | 0));
+    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleNotifyUserInfoEntry, 0));
+  }
+}
+
+%typemap(out) GList *purple_roomlist_get_fields {
+  GList *i = 0;
+  
+  $result = PyList_New(0);
+  for (i = g_list_first($1); i != 0; i = g_list_next(i)) {
+    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleRoomlistField, 0));
+  }
+}
+
+%typemap(out) GList *purple_roomlist_room_get_fields {
+  GList *i = 0;
+  int n = 0;
+  
+  $result = PyList_New(0);
+  for (i = g_list_first($1); i != 0; i = g_list_next(i)) {
+    /* TODO(koyao): This implementation is only good for IRC. 
+     * This needs to be fixed if we are to support MUC other than IRC.
+     */
+    if (n == 0 || n == 2) {
+      /* The first and third field of an IRC room is of type gchar* */
+      PyList_Append($result, PyString_FromString(i->data));
+    } 
+    else {
+      /* The second field of an IRC room is of type long */
+      PyList_Append($result, PyInt_FromLong((long)i->data));
+    }
+    n++;
   }
 }
 
@@ -123,7 +153,7 @@ typedef char gchar;
   
   $result = PyList_New(0);
   for (i = g_slist_nth($1, 0); i != 0; i = g_slist_next(i)) {
-    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleBuddy, 0 | 0));
+    PyList_Append($result, SWIG_NewPointerObj(SWIG_as_voidptr(i->data), SWIGTYPE_p__PurpleBuddy, 0));
   }
 }
 
@@ -1322,8 +1352,11 @@ gboolean heliotrope_debug_is_enabled(PurpleDebugLevel level, const char *categor
 PurpleDebugUiOps *heliotrope_debug_get_ui_ops();
 void set_heliotrope_print_debug_cb(PyObject *func);
 void heliotrope_xfire_tooltip_text(PurpleBuddy *buddy);
+void set_heliotrope_add_room_cb(PyObject *func);
+void set_heliotrope_room_refresh_in_progress_cb(PyObject *func);
 PurpleNotifyUiOps *heliotrope_get_notify_ui_ops();
 PurpleBlistUiOps *heliotrope_get_blist_ui_ops();
+PurpleRoomlistUiOps *heliotrope_get_roomlist_ui_ops();
 
 PurpleAccount *to_account(void *p);
 PurpleConversation *to_conversation(void *p);
@@ -1332,6 +1365,9 @@ PurpleStatus *to_status(void *p);
 PurpleConnection *to_connection(void *p);
 PurpleXfer *to_xfer(void *p);
 PurpleNotifyUserInfo *to_user_info(void *p);
+PurpleRoomlist *to_room_list(void *p);
+PurpleRoomlistRoom *to_room(void *p);
+PurpleConversation *to_conv(void *p);
 
 %callback("%s_cb");
 guint gnt_input_add(int, PurpleInputCondition, PurpleInputFunction, gpointer);
@@ -1350,6 +1386,7 @@ guint gnt_input_add(int fd, PurpleInputCondition condition, PurpleInputFunction 
 #endif
     
 void set_received_im_msg(PurplePlugin *plugin, PyObject *func);
+void set_received_chat_msg(PurplePlugin *plugin, PyObject *func);
 void set_buddy_typed(PurplePlugin *plugin, PyObject *func);
 void set_buddy_typing(PurplePlugin *plugin, PyObject *func);
 void set_buddy_typing_stopped(PurplePlugin *plugin, PyObject *func);
@@ -1376,6 +1413,8 @@ void set_file_send_accept(PurplePlugin *plugin, PyObject *func);
 void set_file_send_start(PurplePlugin *plugin, PyObject *func);
 void set_file_send_cancel(PurplePlugin *plugin, PyObject *func);
 void set_file_send_complete(PurplePlugin *plugin, PyObject *func);
+void set_chat_buddy_joined(PurplePlugin *plugin, PyObject *func);
+void set_chat_buddy_left(PurplePlugin *plugin, PyObject *func);
 
 %callback("%s_cb");
 void *request_authorize(PurpleAccount *account, const char *remote_user,
@@ -1445,7 +1484,6 @@ PurpleBuddy *BlistNodeToBuddy(PurpleBlistNode *p) {
   return (PurpleBuddy *) p;
 }
 
-
 /* Create a wrapper around purple_account_set_status since Swig doesn't
  * support well functions with variable list of arguments.
  */
@@ -1455,3 +1493,4 @@ void heliotrope_account_set_status(PurpleAccount *account, const char *status_id
 }
 %}
 
+void setup_exception_handler();

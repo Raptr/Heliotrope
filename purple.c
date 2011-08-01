@@ -7,6 +7,9 @@
 
 #include <Python.h>
 #include <glib.h>
+#include <windows.h>
+#include <shlobj.h>
+
 #include "account.h"
 #include "blist.h"
 #include "conversation.h"
@@ -79,7 +82,7 @@ guint gnt_input_add(gint fd, PurpleInputCondition condition,
 
 #ifdef _WIN32
   if (use_glib_io_channel == 0)
-    channel = wpurple_g_io_channel_win32_new_socket(fd);
+    channel = (GIOChannel *) wpurple_g_io_channel_win32_new_socket(fd);
   else
 #endif
   channel = g_io_channel_unix_new(fd);
@@ -118,6 +121,18 @@ PurpleXfer *to_xfer(void *p) {
 }
 
 PurpleNotifyUserInfo *to_user_info(void *p) {
+  return p;
+}
+
+PurpleRoomlist *to_room_list(void *p) {
+  return p;
+}
+
+PurpleRoomlistRoom *to_room(void *p) {
+  return p;
+}
+
+PurpleConversation *to_conv(void *p) {
   return p;
 }
 
@@ -162,6 +177,49 @@ void set_received_im_msg(PurplePlugin *plugin, PyObject *func) {
 
   purple_signal_connect(purple_conversations_get_handle(), "received-im-msg",
     plugin, PURPLE_CALLBACK(received_im_msg), received_im_msg_cb);
+}
+
+//-----------------------------------------------------------------------------
+// Relay a received chat (eg. IRC) message to Python.
+gboolean received_chat_msg(PurpleAccount *account, char *sender, char *message,
+  PurpleConversation *conv, PurpleMessageFlags flags, PyObject *func) {
+  char *data = purple_markup_strip_html(message);
+  
+  PyGILState_STATE state = PyGILState_Ensure();
+  
+  PyObject *obj0;
+  PyObject *obj1;
+  PyObject *result;
+
+  if (0 == conv) {
+    conv = purple_conversation_new(PURPLE_CONV_TYPE_CHAT, account, sender);
+  }
+  
+  obj0 = PyCObject_FromVoidPtr(account, NULL);
+  obj1 = PyCObject_FromVoidPtr(conv, NULL);
+  result = PyEval_CallFunction(func, "OssOi", obj0, sender, data, obj1, flags);
+  if (result == NULL)
+    PyErr_Print();
+  
+  Py_XDECREF(result);
+  Py_XDECREF(obj0);
+  Py_XDECREF(obj1);
+
+  PyGILState_Release(state);
+  g_free(data);
+  
+  return FALSE;
+}
+
+void set_received_chat_msg(PurplePlugin *plugin, PyObject *func) {
+  static PyObject *received_chat_msg_cb = 0;
+
+  Py_XINCREF(func);
+  Py_XDECREF(received_chat_msg_cb);
+  received_chat_msg_cb = func;
+
+  purple_signal_connect(purple_conversations_get_handle(), "received-chat-msg",
+    plugin, PURPLE_CALLBACK(received_chat_msg), received_chat_msg_cb);
 }
 
 //-----------------------------------------------------------------------------
@@ -469,7 +527,9 @@ void set_signing_off(PurplePlugin *plugin, PyObject *func) {
 }
 
 //-----------------------------------------------------------------------------
-void connection_error(PurpleConnection *gc, PurpleConnectionError err, const gchar *desc, PyObject *func) {
+void connection_error(PurpleConnection *gc, PurpleConnectionError err,
+                      const gchar *desc, PyObject *func)
+{
   PyGILState_STATE state = PyGILState_Ensure();
   
   PyObject *obj0;
@@ -528,7 +588,9 @@ void set_buddy_icon_changed(PurplePlugin *plugin, PyObject *func)
 }
 
 //-----------------------------------------------------------------------------
-void blist_node_aliased(PurpleBuddy *buddy, const gchar *old_alias, PyObject *func) {
+void blist_node_aliased(PurpleBuddy *buddy, const gchar *old_alias, 
+                        PyObject *func)
+{
   PyGILState_STATE state = PyGILState_Ensure();
   
   PyObject *obj0;
@@ -639,7 +701,8 @@ void heliotrope_debug_print(PurpleDebugLevel level, const char *category,
   // already appends a newline by default.
   message = g_strchomp(message);
 
-  result = PyObject_CallObject(heliotrope_print_debug_cb, Py_BuildValue("(s)", message));
+  result = PyObject_CallObject(heliotrope_print_debug_cb,
+                               Py_BuildValue("(s)", message));
   if (result == NULL)
     PyErr_Print();
 
@@ -648,7 +711,8 @@ void heliotrope_debug_print(PurpleDebugLevel level, const char *category,
   PyGILState_Release(state);
 }
 
-gboolean heliotrope_debug_is_enabled(PurpleDebugLevel level, const char *category)
+gboolean heliotrope_debug_is_enabled(PurpleDebugLevel level,
+                                     const char *category)
 {
   return 1;
 }
@@ -874,4 +938,194 @@ static PurpleNotifyUiOps heliotrope_notify_ui_ops = {
 PurpleNotifyUiOps *heliotrope_get_notify_ui_ops()
 {
   return &heliotrope_notify_ui_ops;
+}
+
+//-----------------------------------------------------------------------------
+
+static PyObject *heliotrope_add_room_cb = NULL;
+
+void set_heliotrope_add_room_cb(PyObject *func) {
+  Py_XINCREF(func);
+  heliotrope_add_room_cb = func;
+}
+
+void heliotrope_add_room(PurpleRoomlist *list, PurpleRoomlistRoom *room) {
+  PyGILState_STATE state = PyGILState_Ensure();
+
+  PyObject *py_list;
+  PyObject *py_room;
+  PyObject *result;
+
+  py_list = PyCObject_FromVoidPtr(list, NULL);
+  py_room = PyCObject_FromVoidPtr(room, NULL);
+
+  result = PyObject_CallObject(heliotrope_add_room_cb,
+    Py_BuildValue("(OO)", py_list, py_room));
+  if (result == NULL)
+    PyErr_Print();
+
+  Py_XDECREF(py_list);
+  Py_XDECREF(py_room);
+  Py_XDECREF(result);
+
+  PyGILState_Release(state);
+}
+
+//-----------------------------------------------------------------------------
+
+static PyObject *heliotrope_room_refresh_in_progress_cb = NULL;
+
+void set_heliotrope_room_refresh_in_progress_cb(PyObject *func) {
+  Py_XINCREF(func);
+  heliotrope_room_refresh_in_progress_cb = func;
+}
+
+void heliotrope_room_refresh_in_progress(PurpleRoomlist *list, 
+  gboolean in_progress) {
+  PyGILState_STATE state = PyGILState_Ensure();
+
+  PyObject *py_list;
+  PyObject *result;
+
+  if (!in_progress && list) {
+    // Room list reference is passed on to the UI.
+    purple_roomlist_ref(list);
+  }
+
+  py_list = PyCObject_FromVoidPtr(list, NULL);
+
+  result = PyObject_CallObject(heliotrope_room_refresh_in_progress_cb,
+    Py_BuildValue("(Oi)", py_list, in_progress));
+  if (result == NULL)
+    PyErr_Print();
+
+  Py_XDECREF(py_list);
+  Py_XDECREF(result);
+
+  PyGILState_Release(state);
+}
+
+//-----------------------------------------------------------------------------
+
+static PurpleRoomlistUiOps heliotrope_roomlist_ui_ops = {
+  NULL, /* show_with_account */
+  NULL, /* create */
+  NULL, /* set_fields */
+  heliotrope_add_room, /* add_room */
+  heliotrope_room_refresh_in_progress, /* in_progress */
+  NULL, /* destroy */
+  NULL, /* _purple_reserved1 */
+  NULL, /* _purple_reserved2 */
+  NULL, /* _purple_reserved3 */
+  NULL, /* _purple_reserved4 */
+};
+
+PurpleRoomlistUiOps *heliotrope_get_roomlist_ui_ops()
+{
+  return &heliotrope_roomlist_ui_ops;
+}
+
+//-----------------------------------------------------------------------------
+void chat_buddy_joined(PurpleConversation *conv, const char *name,
+                       PurpleConvChatBuddyFlags flags,
+                       gboolean new_arrival, PyObject *func)
+{
+  PyGILState_STATE state = PyGILState_Ensure();
+  
+  PyObject *py_conv;
+  PyObject *result;
+
+  py_conv = PyCObject_FromVoidPtr(conv, NULL);
+  result = PyObject_CallObject(func,
+             Py_BuildValue("(Osii)", py_conv, name, flags, new_arrival));
+  if (result == NULL)
+    PyErr_Print();
+
+  Py_XDECREF(result);
+  Py_XDECREF(py_conv);
+
+  PyGILState_Release(state);
+}
+
+void set_chat_buddy_joined(PurplePlugin *plugin, PyObject *func) {
+  static PyObject *chat_buddy_joined_cb = 0;
+
+  Py_XINCREF(func);
+  Py_XDECREF(chat_buddy_joined_cb);
+  chat_buddy_joined_cb = func;
+
+  purple_signal_connect(purple_conversations_get_handle(), "chat-buddy-joined",
+    plugin, PURPLE_CALLBACK(chat_buddy_joined), chat_buddy_joined_cb);
+}
+
+//-----------------------------------------------------------------------------
+void chat_buddy_left(PurpleConversation *conv, const char *name,
+                     const char *reason, PyObject *func)
+{
+  PyGILState_STATE state = PyGILState_Ensure();
+  
+  PyObject *py_conv;
+  PyObject *result;
+
+  py_conv = PyCObject_FromVoidPtr(conv, NULL);
+  result = PyObject_CallObject(func,
+             Py_BuildValue("(Oss)", py_conv, name, reason));
+  if (result == NULL)
+    PyErr_Print();
+
+  Py_XDECREF(result);
+  Py_XDECREF(py_conv);
+
+  PyGILState_Release(state);
+}
+
+void set_chat_buddy_left(PurplePlugin *plugin, PyObject *func) {
+  static PyObject *chat_buddy_left_cb = 0;
+
+  Py_XINCREF(func);
+  Py_XDECREF(chat_buddy_left_cb);
+  chat_buddy_left_cb = func;
+
+  purple_signal_connect(purple_conversations_get_handle(), "chat-buddy-left",
+    plugin, PURPLE_CALLBACK(chat_buddy_left), chat_buddy_left_cb);
+}
+
+//-----------------------------------------------------------------------------
+typedef void (CALLBACK *ULPRET)(char*);
+
+void setup_exception_handler() {
+  wchar_t heliotrope_dir[MAX_PATH];
+  gchar crash_logfile[MAX_PATH];
+  HMODULE hmod;
+  ULPRET proc;
+
+  if (!GetCurrentDirectoryW(MAX_PATH, heliotrope_dir)) {
+    purple_debug_info("purple", "Failed to get current working directory\n");
+    return;
+  }
+
+  wcscat(heliotrope_dir, L"\\exchndl.dll");
+  hmod = LoadLibraryW(heliotrope_dir);
+  if (!hmod) {
+    purple_debug_info("purple", "Failed to load exchndl.dll: %ls\n",
+                      heliotrope_dir);
+    return;
+  }
+  
+  /* Set the log file location */
+  proc = (ULPRET) GetProcAddress(hmod, "SetLogFile");
+  if (!proc) {
+    purple_debug_info("purple", "Failed to find SetLogFile in exchndl.dll\n");
+    return;
+  }
+  
+  if (SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, crash_logfile) != S_OK) {
+    purple_debug_info("purple", "Failed to get APPDATA\n");
+    return;
+  }
+  
+  strcat(crash_logfile, "\\Raptr\\raptr_im.RPT");
+  purple_debug_info("purple", "Setting exchndl.dll LogFile to: '%s'\n",
+                     crash_logfile);
+  (*proc)(crash_logfile);
 }

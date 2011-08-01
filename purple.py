@@ -102,6 +102,14 @@ def heliotrope_xfire_tooltip_text(*args):
   return _purple.heliotrope_xfire_tooltip_text(*args)
 heliotrope_xfire_tooltip_text = _purple.heliotrope_xfire_tooltip_text
 
+def set_heliotrope_add_room_cb(*args):
+  return _purple.set_heliotrope_add_room_cb(*args)
+set_heliotrope_add_room_cb = _purple.set_heliotrope_add_room_cb
+
+def set_heliotrope_room_refresh_in_progress_cb(*args):
+  return _purple.set_heliotrope_room_refresh_in_progress_cb(*args)
+set_heliotrope_room_refresh_in_progress_cb = _purple.set_heliotrope_room_refresh_in_progress_cb
+
 def heliotrope_get_notify_ui_ops():
   return _purple.heliotrope_get_notify_ui_ops()
 heliotrope_get_notify_ui_ops = _purple.heliotrope_get_notify_ui_ops
@@ -109,6 +117,10 @@ heliotrope_get_notify_ui_ops = _purple.heliotrope_get_notify_ui_ops
 def heliotrope_get_blist_ui_ops():
   return _purple.heliotrope_get_blist_ui_ops()
 heliotrope_get_blist_ui_ops = _purple.heliotrope_get_blist_ui_ops
+
+def heliotrope_get_roomlist_ui_ops():
+  return _purple.heliotrope_get_roomlist_ui_ops()
+heliotrope_get_roomlist_ui_ops = _purple.heliotrope_get_roomlist_ui_ops
 
 def to_account(*args):
   return _purple.to_account(*args)
@@ -137,6 +149,18 @@ to_xfer = _purple.to_xfer
 def to_user_info(*args):
   return _purple.to_user_info(*args)
 to_user_info = _purple.to_user_info
+
+def to_room_list(*args):
+  return _purple.to_room_list(*args)
+to_room_list = _purple.to_room_list
+
+def to_room(*args):
+  return _purple.to_room(*args)
+to_room = _purple.to_room
+
+def to_conv(*args):
+  return _purple.to_conv(*args)
+to_conv = _purple.to_conv
 gnt_input_add_cb = _purple.gnt_input_add_cb
 
 def gnt_input_add(*args):
@@ -146,6 +170,10 @@ gnt_input_add = _purple.gnt_input_add
 def set_received_im_msg(*args):
   return _purple.set_received_im_msg(*args)
 set_received_im_msg = _purple.set_received_im_msg
+
+def set_received_chat_msg(*args):
+  return _purple.set_received_chat_msg(*args)
+set_received_chat_msg = _purple.set_received_chat_msg
 
 def set_buddy_typed(*args):
   return _purple.set_buddy_typed(*args)
@@ -250,6 +278,14 @@ set_file_send_cancel = _purple.set_file_send_cancel
 def set_file_send_complete(*args):
   return _purple.set_file_send_complete(*args)
 set_file_send_complete = _purple.set_file_send_complete
+
+def set_chat_buddy_joined(*args):
+  return _purple.set_chat_buddy_joined(*args)
+set_chat_buddy_joined = _purple.set_chat_buddy_joined
+
+def set_chat_buddy_left(*args):
+  return _purple.set_chat_buddy_left(*args)
+set_chat_buddy_left = _purple.set_chat_buddy_left
 request_authorize_cb = _purple.request_authorize_cb
 
 def request_authorize(*args):
@@ -11452,5 +11488,9 @@ BlistNodeToBuddy = _purple.BlistNodeToBuddy
 def heliotrope_account_set_status(*args):
   return _purple.heliotrope_account_set_status(*args)
 heliotrope_account_set_status = _purple.heliotrope_account_set_status
+
+def setup_exception_handler():
+  return _purple.setup_exception_handler()
+setup_exception_handler = _purple.setup_exception_handler
 
 

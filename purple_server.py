@@ -46,6 +46,7 @@ class PurpleServer(QtCore.QThread, purple_base.PurpleBaseRpc):
                               self.buddy_status_changed_cb)
     self.cl.register_callback('blist-node-aliased', self.blist_node_aliased_cb)
     self.cl.register_callback('received-im-msg', self.received_im_msg_cb)
+    self.cl.register_callback('received-chat-msg', self.received_chat_msg_cb)
     self.cl.register_callback('signed-on', self.signed_on_cb)
     self.cl.register_callback('signed-off', self.signed_off_cb)
     self.cl.register_callback('signing-on', self.signing_on_cb)
@@ -66,6 +67,9 @@ class PurpleServer(QtCore.QThread, purple_base.PurpleBaseRpc):
     self.cl.register_callback('file-send-start', self.file_send_start_cb)
     self.cl.register_callback('file-send-cancel', self.file_send_cancel_cb)
     self.cl.register_callback('file-send-complete', self.file_send_complete_cb)
+    self.cl.register_callback('room-list-progress', self.room_list_progress_cb)
+    self.cl.register_callback('chat-buddy-joined', self.chat_buddy_joined_cb)
+    self.cl.register_callback('chat-buddy-left', self.chat_buddy_left_cb)
 
   def run(self):
     log.debug('PurpleServer::run(): Starting...')
@@ -235,6 +239,13 @@ class PurpleServer(QtCore.QThread, purple_base.PurpleBaseRpc):
       msg: Python dictionary
     """
     self.proxyCallback('received-im-msg', msg)
+
+  def received_chat_msg_cb(self, msg):
+    """Proxy callback to PurpleClient
+    Arguments:
+      msg: Python dictionary
+    """
+    self.proxyCallback('received-chat-msg', msg)
     
   def signed_on_cb(self, msg):
     """Proxy callback to PurpleClient
@@ -397,3 +408,23 @@ class PurpleServer(QtCore.QThread, purple_base.PurpleBaseRpc):
     """
     self.proxyCallback('file-send-complete', msg)
     
+  def room_list_progress_cb(self, msg):
+    """Proxy callback to PurpleClient
+    Arguments:
+      msg: Python dictionary
+    """
+    self.proxyCallback('room-list-progress', msg)
+
+  def chat_buddy_joined_cb(self, msg):
+    """Proxy callback to PurpleClient
+    Arguments:
+      msg: Python dictionary
+    """
+    self.proxyCallback('chat-buddy-joined', msg)
+
+  def chat_buddy_left_cb(self, msg):
+    """Proxy callback to PurpleClient
+    Arguments:
+      msg: Python dictionary
+    """
+    self.proxyCallback('chat-buddy-left', msg)
