@@ -1,0 +1,23 @@
+INCLUDE = -I/usr/local/include $(shell pkg-config --cflags-only-I purple python glib-2.0 gobject-2.0 gthread-2.0)
+CFLAGS  = -c $(INCLUDE) $(shell pkg-config --cflags-only-other purple python glib-2.0 gobject-2.0 gthread-2.0)
+LDFLAGS = -L/usr/local/lib \
+          $(shell pkg-config --libs purple python glib-2.0 gobject-2.0 gthread-2.0) \
+          -shared
+CC = gcc
+
+SOURCES = $(wildcard *.i)
+TARGETS = $(SOURCES:%.i=_%.pyd)
+
+all: $(TARGETS)
+
+clean:
+	$(RM) $(SOURCES:i=py) *_wrap.c *.o *.pyc *.pyd
+
+_purple.pyd: purple_wrap.o purple.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+.c.o:
+	$(CC) $(CFLAGS) -o $@ $<
+
+%_wrap.c %.py: %.i
+	swig -python $(INCLUDE) $<
